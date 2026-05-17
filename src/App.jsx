@@ -1,122 +1,104 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState } from 'react';
+import { LAYERS } from './constants/layers.js';
+import { useCandidateGrid } from './hooks/useCandidateGrid.js';
+import { useStaticData } from './hooks/useStaticData.js';
+import { useDroughtData } from './hooks/useDroughtData.js';
+import { useSearch } from './hooks/useSearch.js';
+import Map from './components/Map.jsx';
+import DrawControl from './components/DrawControl.jsx';
+import LayerPanel from './components/LayerPanel.jsx';
+import ResultsPanel from './components/ResultsPanel.jsx';
+import SiteDetailModal from './components/SiteDetailModal.jsx';
+import LoadingOverlay from './components/LoadingOverlay.jsx';
+import ExportButton from './components/ExportButton.jsx';
 
-function App() {
-  const [count, setCount] = useState(0)
+const DEFAULT_VISIBILITY = Object.fromEntries(LAYERS.map(l => [l.id, l.defaultOn]));
+
+export default function App() {
+  const [layerVisibility, setLayerVisibility] = useState(DEFAULT_VISIBILITY);
+  const [searchBbox, setSearchBbox] = useState(null);
+  const [selectedSite, setSelectedSite] = useState(null);
+  const [mapInstance, setMapInstance] = useState(null);
+  const [flyToSite, setFlyToSite] = useState(null);
+
+  const { grid } = useCandidateGrid();
+  const staticData = useStaticData();
+  const { droughtPolygons } = useDroughtData();
+  const { results, searching } = useSearch(searchBbox, grid, staticData, droughtPolygons);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#0f0f17', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+
+      {/* Header */}
+      <header style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 20px', height: 52, flexShrink: 0,
+        background: '#13131f', borderBottom: '1px solid #2a2a3e',
+        zIndex: 10,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 6,
+            background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14, fontWeight: 800, color: '#fff',
+          }}>S</div>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0', letterSpacing: '-0.3px' }}>SiteIQ</span>
+          <span style={{
+            fontSize: 11, padding: '2px 6px', borderRadius: 4,
+            background: '#1e1e3f', color: '#7c3aed', fontWeight: 600,
+          }}>Texas</span>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
+
+        <div style={{ fontSize: 11, color: '#4a4a6a', maxWidth: 480, textAlign: 'center', lineHeight: 1.4 }}>
+          ⚠️ Data is a pre-feasibility screening tool. Substation voltage proxies capacity — actual headroom requires a utility study.
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
+
+        <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {staticData.loading ? (
+            <span style={{ color: '#4a4a6a' }}>⏳ Loading datasets…</span>
+          ) : results.length > 0 ? (
+            <>
+              <span style={{ color: '#22c55e', fontWeight: 700 }}>✓ {results.length} sites scored</span>
+              <span style={{ color: '#3a3a5a' }}>·</span>
+              <span style={{ color: '#86efac' }}>{results.filter(r => r.totalScore >= 70).length} green</span>
+              <span style={{ color: '#3a3a5a' }}>·</span>
+              <span style={{ color: '#fde68a' }}>{results.filter(r => r.totalScore < 70).length} yellow</span>
+            </>
+          ) : (
+            <span style={{ color: '#4a4a6a' }}>Ready — draw a search area</span>
+          )}
+        </div>
+      </header>
+
+      {/* Main layout */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <LayerPanel visibility={layerVisibility} onChange={(id, val) => setLayerVisibility(prev => ({ ...prev, [id]: val }))} />
+
+        <Map
+          layerVisibility={layerVisibility}
+          results={results}
+          onMapReady={setMapInstance}
+          staticData={staticData}
+          hasSearch={!!searchBbox}
+          searchPolygon={searchBbox}
+          flyToSite={flyToSite}
+          onSiteClick={site => { setSelectedSite(site); setFlyToSite(site); }}
         >
-          Count is {count}
-        </button>
-      </section>
+          <DrawControl map={mapInstance} onSearch={setSearchBbox} />
+        </Map>
 
-      <div className="ticks"></div>
+        <ResultsPanel
+          results={results}
+          onSelect={site => { setSelectedSite(site); setFlyToSite(site); }}
+          searching={searching}
+          hasDrawn={!!searchBbox}
+        />
+      </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      <SiteDetailModal site={selectedSite} onClose={() => setSelectedSite(null)} />
+      <LoadingOverlay visible={staticData.loading} />
+      <ExportButton results={results} />
+    </div>
+  );
 }
-
-export default App

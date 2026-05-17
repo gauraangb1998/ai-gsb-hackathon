@@ -26,3 +26,20 @@ body {
   width: 30px;
   height: 30px;
 }
+
+/* Custom popup — remove default white box, show our styled HTML only */
+.maplibregl-popup-content {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+.maplibregl-popup-tip {
+  display: none !important;
+}
+
+/* Scrollbar for result panels */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a3e; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a5a; }
