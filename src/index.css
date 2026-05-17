@@ -27,6 +27,47 @@ body {
   height: 30px;
 }
 
+/* Fix: Tailwind v4 preflight resets position on .maplibregl-control-container to static,
+   causing the canvas to visually stack above all controls. Restore MapLibre's layout
+   and give the control container an explicit z-index to win the stacking contest. */
+.maplibregl-canvas-container {
+  position: relative !important;
+  z-index: 0;
+}
+.maplibregl-control-container {
+  position: absolute !important;
+  top: 0; right: 0; bottom: 0; left: 0;
+  z-index: 2 !important;
+  pointer-events: none;
+}
+.maplibregl-control-container > *,
+.maplibregl-control-container * {
+  pointer-events: auto !important;
+}
+
+/* Fix: @mapbox/mapbox-gl-draw uses mapboxgl-* prefix — give it proper z-index */
+.mapboxgl-ctrl-group {
+  position: relative;
+  z-index: 3;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px rgba(0,0,0,.1);
+  overflow: hidden;
+}
+.mapboxgl-ctrl-group button {
+  width: 30px;
+  height: 30px;
+  display: block;
+  cursor: pointer;
+  border: none;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: 50%;
+}
+.mapboxgl-ctrl-group button + button {
+  border-top: 1px solid #ddd;
+}
+
 /* Custom popup — remove default white box, show our styled HTML only */
 .maplibregl-popup-content {
   background: transparent !important;
