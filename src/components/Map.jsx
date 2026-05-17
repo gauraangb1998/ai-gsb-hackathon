@@ -134,7 +134,7 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
         layout: {
           'text-field': ['get', 'name'],
           'text-size': ['interpolate',['linear'],['get','pop'],1,11,3,13],
-          'text-font': ['Open Sans Bold','Arial Unicode MS Bold'],
+          'text-font': ['Open Sans Semibold'],
           'text-offset': [0, 1.2],
           'text-anchor': 'top',
           'text-allow-overlap': false,
@@ -176,26 +176,38 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
       });
 
       mapRef.current = map;
+      // Apply static data if it already loaded before the map style was ready
+      if (!staticDataRef.current?.loading) {
+        LAYERS.forEach(layer => {
+          const data = staticDataRef.current[LAYER_ID_TO_DATA_KEY[layer.id]];
+          const src = map.getSource(`src-${layer.id}`);
+          if (data && src) src.setData(data);
+        });
+      }
       onMapReadyRef.current?.(map);
     });
 
     return () => { map.remove(); mapRef.current = null; };
   }, []);
 
-  // Load static data when it becomes available
+  // Load static data — robust: poll until both map AND data are ready
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || staticData?.loading) return;
-    const update = () => {
+    if (staticData?.loading) return;
+    const apply = () => {
+      const map = mapRef.current;
+      if (!map || !map.isStyleLoaded()) return false;
       LAYERS.forEach(layer => {
         const data = staticData[LAYER_ID_TO_DATA_KEY[layer.id]];
         const src = map.getSource(`src-${layer.id}`);
         if (data && src) src.setData(data);
       });
+      return true;
     };
-    if (map.isStyleLoaded()) update();
-    else map.once('load', update);
-  }, [staticData.loading]);
+    if (!apply()) {
+      const iv = setInterval(() => { if (apply()) clearInterval(iv); }, 100);
+      return () => clearInterval(iv);
+    }
+  }, [staticData]);
 
   // Layer visibility
   useEffect(() => {
