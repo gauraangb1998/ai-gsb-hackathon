@@ -7,6 +7,27 @@ import { GREEN_THRESHOLD, YELLOW_THRESHOLD } from '../utils/scoring.js';
 
 const STYLE = 'https://demotiles.maplibre.org/style.json';
 
+const TX_CITIES = {
+  type: 'FeatureCollection',
+  features: [
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-95.369, 29.760] }, properties:{ name:'Houston',    pop:3 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-96.797, 32.776] }, properties:{ name:'Dallas',     pop:3 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-98.494, 29.425] }, properties:{ name:'San Antonio',pop:3 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-97.743, 30.267] }, properties:{ name:'Austin',     pop:3 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-97.333, 32.725] }, properties:{ name:'Fort Worth', pop:2 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-106.485,31.758] }, properties:{ name:'El Paso',    pop:2 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-101.855,33.565] }, properties:{ name:'Lubbock',    pop:1 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-101.831,35.207] }, properties:{ name:'Amarillo',   pop:1 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-97.148, 31.549] }, properties:{ name:'Waco',       pop:1 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-94.103, 30.080] }, properties:{ name:'Beaumont',   pop:1 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-102.077,31.869] }, properties:{ name:'Midland',    pop:1 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-98.493, 33.913] }, properties:{ name:'Abilene',    pop:1 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-96.468, 33.209] }, properties:{ name:'Plano',      pop:1 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-97.137, 26.204] }, properties:{ name:'McAllen',    pop:1 } },
+    { type:'Feature', geometry:{ type:'Point', coordinates:[-97.508, 25.900] }, properties:{ name:'Brownsville',pop:1 } },
+  ],
+};
+
 function polygonBbox(polygon) {
   const coords = polygon?.geometry?.coordinates?.[0] ?? polygon?.coordinates?.[0] ?? [];
   let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
@@ -100,6 +121,25 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
           'text-offset': [0, 1.8],
         },
         paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
+      });
+
+      // City reference labels
+      map.addSource('src-cities', { type: 'geojson', data: TX_CITIES });
+      map.addLayer({
+        id: 'lyr-cities-dot', type: 'circle', source: 'src-cities',
+        paint: { 'circle-color': '#e2e8f0', 'circle-radius': ['interpolate',['linear'],['get','pop'],1,3,3,5], 'circle-opacity': 0.85, 'circle-stroke-color': '#0f0f17', 'circle-stroke-width': 1 },
+      });
+      map.addLayer({
+        id: 'lyr-cities-label', type: 'symbol', source: 'src-cities',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': ['interpolate',['linear'],['get','pop'],1,11,3,13],
+          'text-font': ['Open Sans Bold','Arial Unicode MS Bold'],
+          'text-offset': [0, 1.2],
+          'text-anchor': 'top',
+          'text-allow-overlap': false,
+        },
+        paint: { 'text-color': '#e2e8f0', 'text-halo-color': '#0f0f17', 'text-halo-width': 1.5 },
       });
 
       // Hover popup for site dots

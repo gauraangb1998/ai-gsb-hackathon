@@ -6,5 +6,5 @@ export const LAYERS = [
   { id: 'protected',    label: 'Protected Lands',           file: 'tx_protected.geojson',    color: '#22c55e', defaultOn: true },
   { id: 'ssa',          label: 'Sole Source Aquifers',      file: 'tx_ssa.geojson',          color: '#ef4444', defaultOn: true },
   { id: 'highways',     label: 'Interstate Highways',       file: 'tx_highways.geojson',     color: '#6b7280', defaultOn: true },
-  { id: 'airports',     label: 'Airports',                  file: 'tx_airports.geojson',     color: '#6b7280', defaultOn: true },
+  { id: 'airports',     label: 'Airfields (FAA-registered)', file: 'tx_airports.geojson',     color: '#6b7280', defaultOn: false },
 ];
