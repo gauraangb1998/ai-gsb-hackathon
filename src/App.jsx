@@ -23,7 +23,12 @@ export default function App() {
   // dcHidden: Set of operator names the user has toggled OFF
   const [dcHidden, setDcHidden] = useState(new Set());
 
-  // Unique operators + counts derived from loaded datacenter data
+  const { grid } = useCandidateGrid();
+  const staticData = useStaticData();
+  const { droughtPolygons } = useDroughtData();
+  const { results, searching } = useSearch(searchBbox, grid, staticData, droughtPolygons);
+
+  // Unique operators + counts — must come AFTER staticData is declared
   const dcCompanySummary = useMemo(() => {
     const features = staticData.datacenters?.features;
     if (!features?.length) return [];
@@ -36,11 +41,6 @@ export default function App() {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
   }, [staticData.datacenters]);
-
-  const { grid } = useCandidateGrid();
-  const staticData = useStaticData();
-  const { droughtPolygons } = useDroughtData();
-  const { results, searching } = useSearch(searchBbox, grid, staticData, droughtPolygons);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#0f0f17', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
