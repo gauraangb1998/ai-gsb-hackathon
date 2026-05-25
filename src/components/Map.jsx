@@ -1,11 +1,26 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { TX_CENTER, TX_ZOOM } from '../constants/bounds.js';
 import { LAYERS } from '../constants/layers.js';
 import { GREEN_THRESHOLD, YELLOW_THRESHOLD } from '../utils/scoring.js';
 
-const STYLE = 'https://demotiles.maplibre.org/style.json';
+const STREET_STYLE = 'https://demotiles.maplibre.org/style.json';
+
+const SATELLITE_STYLE = {
+  version: 8,
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+  sources: {
+    satellite: {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      attribution: '© Esri — Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN',
+      maxzoom: 19,
+    },
+  },
+  layers: [{ id: 'satellite-bg', type: 'raster', source: 'satellite' }],
+};
 
 const TX_CITIES = {
   type: 'FeatureCollection',
@@ -68,67 +83,68 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
   onMapReadyRef.current = onMapReady;
   onSiteClickRef.current = onSiteClick;
 
-  // Init map once
-  useEffect(() => {
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: STYLE,
-      center: TX_CENTER,
-      zoom: TX_ZOOM,
-      attributionControl: false,
-    });
-    window.__siteiqMap = map; // available immediately for testing
+  // Keep live refs for re-applying after style switch
+  const staticDataRef = useRef(staticData);
+  const resultsRef = useRef(results);
+  const layerVisibilityRef = useRef(layerVisibility);
+  staticDataRef.current = staticData;
+  resultsRef.current = results;
+  layerVisibilityRef.current = layerVisibility;
 
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+  const [basemap, setBasemap] = useState('street');
 
-    map.on('load', () => {
-      // Infrastructure layers
-      LAYERS.forEach(layer => {
-        const render = LAYER_RENDER[layer.id];
-        if (!render) return;
+  // Adds all custom sources + layers to map (called on init and after style switch)
+  const addLayers = useCallback((map) => {
+    // Infrastructure sources + layers
+    LAYERS.forEach(layer => {
+      const render = LAYER_RENDER[layer.id];
+      if (!render) return;
+      if (!map.getSource(`src-${layer.id}`)) {
         map.addSource(`src-${layer.id}`, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      }
+      if (!map.getLayer(`lyr-${layer.id}`)) {
         map.addLayer({ id: `lyr-${layer.id}`, type: render.type, source: `src-${layer.id}`, paint: render.paint });
-      });
+      }
+    });
 
-      // Candidate site layers
+    // Site score layers
+    if (!map.getSource('src-sites')) {
       map.addSource('src-sites', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-
+    }
+    if (!map.getLayer('lyr-sites-yellow')) {
       map.addLayer({
         id: 'lyr-sites-yellow', type: 'circle', source: 'src-sites',
         filter: ['all', ['>=', ['get', 'totalScore'], YELLOW_THRESHOLD], ['<', ['get', 'totalScore'], GREEN_THRESHOLD]],
-        paint: {
-          'circle-color': '#eab308', 'circle-radius': 8, 'circle-opacity': 0.9,
-          'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5,
-        },
+        paint: { 'circle-color': '#eab308', 'circle-radius': 8, 'circle-opacity': 0.9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 },
       });
+    }
+    if (!map.getLayer('lyr-sites-green')) {
       map.addLayer({
         id: 'lyr-sites-green', type: 'circle', source: 'src-sites',
         filter: ['>=', ['get', 'totalScore'], GREEN_THRESHOLD],
-        paint: {
-          'circle-color': '#22c55e', 'circle-radius': 10, 'circle-opacity': 0.9,
-          'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5,
-        },
+        paint: { 'circle-color': '#22c55e', 'circle-radius': 10, 'circle-opacity': 0.9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 },
       });
-
-      // Score label on green sites
+    }
+    if (!map.getLayer('lyr-sites-label')) {
       map.addLayer({
         id: 'lyr-sites-label', type: 'symbol', source: 'src-sites',
         filter: ['>=', ['get', 'totalScore'], GREEN_THRESHOLD],
-        layout: {
-          'text-field': ['to-string', ['get', 'totalScore']],
-          'text-size': 9,
-          'text-offset': [0, 1.8],
-        },
+        layout: { 'text-field': ['to-string', ['get', 'totalScore']], 'text-size': 9, 'text-offset': [0, 1.8] },
         paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
       });
+    }
 
-      // City reference labels
+    // City reference labels
+    if (!map.getSource('src-cities')) {
       map.addSource('src-cities', { type: 'geojson', data: TX_CITIES });
+    }
+    if (!map.getLayer('lyr-cities-dot')) {
       map.addLayer({
         id: 'lyr-cities-dot', type: 'circle', source: 'src-cities',
         paint: { 'circle-color': '#e2e8f0', 'circle-radius': ['interpolate',['linear'],['get','pop'],1,3,3,5], 'circle-opacity': 0.85, 'circle-stroke-color': '#0f0f17', 'circle-stroke-width': 1 },
       });
+    }
+    if (!map.getLayer('lyr-cities-label')) {
       map.addLayer({
         id: 'lyr-cities-label', type: 'symbol', source: 'src-cities',
         layout: {
@@ -141,8 +157,67 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
         },
         paint: { 'text-color': '#e2e8f0', 'text-halo-color': '#0f0f17', 'text-halo-width': 1.5 },
       });
+    }
 
-      // Hover popup for site dots
+    // Apply visibility
+    const vis = layerVisibilityRef.current;
+    LAYERS.forEach(layer => {
+      if (map.getLayer(`lyr-${layer.id}`)) {
+        map.setLayoutProperty(`lyr-${layer.id}`, 'visibility', vis[layer.id] ? 'visible' : 'none');
+      }
+    });
+
+    // Re-apply static data
+    const sd = staticDataRef.current;
+    if (sd && !sd.loading) {
+      LAYERS.forEach(layer => {
+        const data = sd[LAYER_ID_TO_DATA_KEY[layer.id]];
+        const src = map.getSource(`src-${layer.id}`);
+        if (data && src) src.setData(data);
+      });
+    }
+
+    // Re-apply current results
+    const sitesSrc = map.getSource('src-sites');
+    if (sitesSrc && resultsRef.current?.length) {
+      sitesSrc.setData({
+        type: 'FeatureCollection',
+        features: resultsRef.current.map(site => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [site.lng, site.lat] },
+          properties: {
+            lat: site.lat, lng: site.lng,
+            totalScore: site.totalScore, powerScore: site.powerScore,
+            gasScore: site.gasScore, waterScore: site.waterScore,
+            logisticsScore: site.logisticsScore, distSub: site.distSub,
+            distPipe: site.distPipe, distHighway: site.distHighway,
+            distAirport: site.distAirport,
+            droughtLevel: site.droughtLevel ?? 'N/A',
+            nearSSA: !!site.nearSSA,
+          },
+        })),
+      });
+    }
+  }, []);
+
+  // Init map once
+  useEffect(() => {
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: STREET_STYLE,
+      center: TX_CENTER,
+      zoom: TX_ZOOM,
+      attributionControl: false,
+    });
+    window.__siteiqMap = map;
+
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+    map.on('load', () => {
+      addLayers(map);
+
+      // Hover popup (added once, survives style switches via layer-specific events)
       const hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
       const SITE_LAYERS = ['lyr-sites-green', 'lyr-sites-yellow'];
       SITE_LAYERS.forEach(lyrId => {
@@ -176,21 +251,22 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
       });
 
       mapRef.current = map;
-      // Apply static data if it already loaded before the map style was ready
-      if (!staticDataRef.current?.loading) {
-        LAYERS.forEach(layer => {
-          const data = staticDataRef.current[LAYER_ID_TO_DATA_KEY[layer.id]];
-          const src = map.getSource(`src-${layer.id}`);
-          if (data && src) src.setData(data);
-        });
-      }
       onMapReadyRef.current?.(map);
     });
 
     return () => { map.remove(); mapRef.current = null; };
-  }, []);
+  }, [addLayers]);
 
-  // Load static data — robust: poll until both map AND data are ready
+  // Basemap switch — re-add all custom layers after style.load
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const newStyle = basemap === 'satellite' ? SATELLITE_STYLE : STREET_STYLE;
+    map.setStyle(newStyle);
+    map.once('style.load', () => addLayers(map));
+  }, [basemap, addLayers]);
+
+  // Load static data
   useEffect(() => {
     if (staticData?.loading) return;
     const apply = () => {
@@ -272,6 +348,37 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Basemap toggle */}
+      <div style={{
+        position: 'absolute', bottom: 32, left: 12,
+        display: 'flex', borderRadius: 8, overflow: 'hidden',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
+        border: '1px solid rgba(255,255,255,0.12)',
+        zIndex: 10,
+      }}>
+        {['street', 'satellite'].map(mode => (
+          <button
+            key={mode}
+            onClick={() => setBasemap(mode)}
+            style={{
+              padding: '6px 13px',
+              fontSize: 12,
+              fontWeight: 600,
+              fontFamily: 'system-ui, sans-serif',
+              cursor: 'pointer',
+              border: 'none',
+              background: basemap === mode ? '#7c3aed' : 'rgba(15,15,23,0.85)',
+              color: basemap === mode ? '#fff' : '#9999b8',
+              backdropFilter: 'blur(6px)',
+              transition: 'background 0.15s, color 0.15s',
+              textTransform: 'capitalize',
+            }}
+          >
+            {mode === 'street' ? '🗺 Street' : '🛰 Satellite'}
+          </button>
+        ))}
+      </div>
 
       {/* Draw instructions overlay */}
       {!hasSearch && (
