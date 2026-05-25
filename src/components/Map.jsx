@@ -22,6 +22,31 @@ const SATELLITE_STYLE = {
   layers: [{ id: 'satellite-bg', type: 'raster', source: 'satellite' }],
 };
 
+// Paint properties differ between street and satellite for contrast
+function getLayerRender(isSatellite) {
+  return {
+    substations:  { type: 'circle', paint: { 'circle-color': '#c084fc', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 4, 10, 9], 'circle-opacity': 1, 'circle-stroke-color': isSatellite ? '#000' : '#fff', 'circle-stroke-width': isSatellite ? 1.5 : 0.5 } },
+    transmission: { type: 'line',   paint: { 'line-color': isSatellite ? '#e879f9' : '#a855f7', 'line-width': isSatellite ? 2.5 : 1.5, 'line-opacity': 1 } },
+    pipelines:    { type: 'line',   paint: { 'line-color': isSatellite ? '#fb923c' : '#f97316', 'line-width': isSatellite ? 3 : 1.5, 'line-opacity': 1 } },
+    flood:        { type: 'fill',   paint: { 'fill-color': '#3b82f6', 'fill-opacity': isSatellite ? 0.5 : 0.35 } },
+    protected:    { type: 'fill',   paint: { 'fill-color': '#22c55e', 'fill-opacity': isSatellite ? 0.45 : 0.35 } },
+    ssa:          { type: 'fill',   paint: { 'fill-color': '#ef4444', 'fill-opacity': isSatellite ? 0.45 : 0.3 } },
+    highways:     { type: 'line',   paint: { 'line-color': isSatellite ? '#ffffff' : '#94a3b8', 'line-width': isSatellite ? 2.5 : 1.5, 'line-opacity': isSatellite ? 0.85 : 0.6 } },
+    airports:     { type: 'circle', paint: { 'circle-color': isSatellite ? '#ffffff' : '#94a3b8', 'circle-radius': 5, 'circle-opacity': 1, 'circle-stroke-color': '#000', 'circle-stroke-width': isSatellite ? 1 : 0 } },
+  };
+}
+
+const LAYER_ID_TO_DATA_KEY = {
+  substations: 'substations',
+  transmission: 'transmission',
+  pipelines: 'pipelines',
+  flood: 'flood',
+  protected: 'protectedLands',
+  ssa: 'ssa',
+  highways: 'highways',
+  airports: 'airports',
+};
+
 const TX_CITIES = {
   type: 'FeatureCollection',
   features: [
@@ -53,27 +78,34 @@ function polygonBbox(polygon) {
   return [minLng, minLat, maxLng, maxLat];
 }
 
-const LAYER_RENDER = {
-  substations:  { type: 'circle', paint: { 'circle-color': '#9333ea', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3, 10, 7], 'circle-opacity': 0.9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 0.5 } },
-  transmission: { type: 'line',   paint: { 'line-color': '#9333ea', 'line-width': 1.5, 'line-opacity': 0.7 } },
-  pipelines:    { type: 'line',   paint: { 'line-color': '#f97316', 'line-width': 1.5, 'line-opacity': 0.7 } },
-  flood:        { type: 'fill',   paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.35 } },
-  protected:    { type: 'fill',   paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.35 } },
-  ssa:          { type: 'fill',   paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.3 } },
-  highways:     { type: 'line',   paint: { 'line-color': '#94a3b8', 'line-width': 1.5, 'line-opacity': 0.6 } },
-  airports:     { type: 'circle', paint: { 'circle-color': '#94a3b8', 'circle-radius': 5, 'circle-opacity': 0.9 } },
-};
-
-const LAYER_ID_TO_DATA_KEY = {
-  substations: 'substations',
-  transmission: 'transmission',
-  pipelines: 'pipelines',
-  flood: 'flood',
-  protected: 'protectedLands',
-  ssa: 'ssa',
-  highways: 'highways',
-  airports: 'airports',
-};
+function makePinEl(site, onClick) {
+  const isGreen = site.totalScore >= GREEN_THRESHOLD;
+  const color = isGreen ? '#22c55e' : '#eab308';
+  const shadow = isGreen ? 'rgba(34,197,94,0.45)' : 'rgba(234,179,8,0.45)';
+  const el = document.createElement('div');
+  el.style.cssText = 'display:flex;flex-direction:column;align-items:center;cursor:pointer;user-select:none;';
+  el.innerHTML = `
+    <div style="
+      width:32px;height:32px;border-radius:50%;
+      background:${color};
+      border:2.5px solid #fff;
+      box-shadow:0 3px 10px ${shadow};
+      display:flex;align-items:center;justify-content:center;
+      color:#fff;font-size:10px;font-weight:800;
+      font-family:system-ui,sans-serif;
+      line-height:1;
+    ">${site.totalScore}</div>
+    <div style="
+      width:0;height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:9px solid ${color};
+      margin-top:-1px;
+      filter:drop-shadow(0 2px 2px rgba(0,0,0,0.3));
+    "></div>`;
+  el.addEventListener('click', (e) => { e.stopPropagation(); onClick(site); });
+  return el;
+}
 
 export default function Map({ layerVisibility, results, onMapReady, staticData, hasSearch, searchPolygon, flyToSite, onSiteClick, children }) {
   const containerRef = useRef(null);
@@ -83,19 +115,37 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
   onMapReadyRef.current = onMapReady;
   onSiteClickRef.current = onSiteClick;
 
-  // Keep live refs for re-applying after style switch
+  // Live refs so addLayers / marker updates can read current values
   const staticDataRef = useRef(staticData);
   const resultsRef = useRef(results);
   const layerVisibilityRef = useRef(layerVisibility);
+  const basemapRef = useRef('street');
   staticDataRef.current = staticData;
   resultsRef.current = results;
   layerVisibilityRef.current = layerVisibility;
 
   const [basemap, setBasemap] = useState('street');
+  const markersRef = useRef([]);
 
-  // Adds all custom sources + layers to map (called on init and after style switch)
+  // ── Rebuild pin markers whenever results change ────────────────────────────
+  const rebuildMarkers = useCallback((map, siteList) => {
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+    if (!map || !siteList?.length) return;
+    siteList.forEach(site => {
+      const el = makePinEl(site, (s) => onSiteClickRef.current?.(s));
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([site.lng, site.lat])
+        .addTo(map);
+      markersRef.current.push(marker);
+    });
+  }, []);
+
+  // ── Add all infrastructure + city layers to map ────────────────────────────
   const addLayers = useCallback((map) => {
-    // Infrastructure sources + layers
+    const isSat = basemapRef.current === 'satellite';
+    const LAYER_RENDER = getLayerRender(isSat);
+
     LAYERS.forEach(layer => {
       const render = LAYER_RENDER[layer.id];
       if (!render) return;
@@ -107,33 +157,6 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
       }
     });
 
-    // Site score layers
-    if (!map.getSource('src-sites')) {
-      map.addSource('src-sites', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    }
-    if (!map.getLayer('lyr-sites-yellow')) {
-      map.addLayer({
-        id: 'lyr-sites-yellow', type: 'circle', source: 'src-sites',
-        filter: ['all', ['>=', ['get', 'totalScore'], YELLOW_THRESHOLD], ['<', ['get', 'totalScore'], GREEN_THRESHOLD]],
-        paint: { 'circle-color': '#eab308', 'circle-radius': 8, 'circle-opacity': 0.9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 },
-      });
-    }
-    if (!map.getLayer('lyr-sites-green')) {
-      map.addLayer({
-        id: 'lyr-sites-green', type: 'circle', source: 'src-sites',
-        filter: ['>=', ['get', 'totalScore'], GREEN_THRESHOLD],
-        paint: { 'circle-color': '#22c55e', 'circle-radius': 10, 'circle-opacity': 0.9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 },
-      });
-    }
-    if (!map.getLayer('lyr-sites-label')) {
-      map.addLayer({
-        id: 'lyr-sites-label', type: 'symbol', source: 'src-sites',
-        filter: ['>=', ['get', 'totalScore'], GREEN_THRESHOLD],
-        layout: { 'text-field': ['to-string', ['get', 'totalScore']], 'text-size': 9, 'text-offset': [0, 1.8] },
-        paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1 },
-      });
-    }
-
     // City reference labels
     if (!map.getSource('src-cities')) {
       map.addSource('src-cities', { type: 'geojson', data: TX_CITIES });
@@ -141,7 +164,7 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
     if (!map.getLayer('lyr-cities-dot')) {
       map.addLayer({
         id: 'lyr-cities-dot', type: 'circle', source: 'src-cities',
-        paint: { 'circle-color': '#e2e8f0', 'circle-radius': ['interpolate',['linear'],['get','pop'],1,3,3,5], 'circle-opacity': 0.85, 'circle-stroke-color': '#0f0f17', 'circle-stroke-width': 1 },
+        paint: { 'circle-color': '#e2e8f0', 'circle-radius': ['interpolate',['linear'],['get','pop'],1,3,3,5], 'circle-opacity': 0.9, 'circle-stroke-color': isSat ? '#000' : '#0f0f17', 'circle-stroke-width': 1 },
       });
     }
     if (!map.getLayer('lyr-cities-label')) {
@@ -155,11 +178,11 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
           'text-anchor': 'top',
           'text-allow-overlap': false,
         },
-        paint: { 'text-color': '#e2e8f0', 'text-halo-color': '#0f0f17', 'text-halo-width': 1.5 },
+        paint: { 'text-color': isSat ? '#fff' : '#e2e8f0', 'text-halo-color': isSat ? '#000' : '#0f0f17', 'text-halo-width': 2 },
       });
     }
 
-    // Apply visibility
+    // Apply current visibility
     const vis = layerVisibilityRef.current;
     LAYERS.forEach(layer => {
       if (map.getLayer(`lyr-${layer.id}`)) {
@@ -177,30 +200,11 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
       });
     }
 
-    // Re-apply current results
-    const sitesSrc = map.getSource('src-sites');
-    if (sitesSrc && resultsRef.current?.length) {
-      sitesSrc.setData({
-        type: 'FeatureCollection',
-        features: resultsRef.current.map(site => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [site.lng, site.lat] },
-          properties: {
-            lat: site.lat, lng: site.lng,
-            totalScore: site.totalScore, powerScore: site.powerScore,
-            gasScore: site.gasScore, waterScore: site.waterScore,
-            logisticsScore: site.logisticsScore, distSub: site.distSub,
-            distPipe: site.distPipe, distHighway: site.distHighway,
-            distAirport: site.distAirport,
-            droughtLevel: site.droughtLevel ?? 'N/A',
-            nearSSA: !!site.nearSSA,
-          },
-        })),
-      });
-    }
-  }, []);
+    // Re-add pin markers
+    rebuildMarkers(map, resultsRef.current);
+  }, [rebuildMarkers]);
 
-  // Init map once
+  // ── Init map once ──────────────────────────────────────────────────────────
   useEffect(() => {
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -210,63 +214,37 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
       attributionControl: false,
     });
     window.__siteiqMap = map;
-
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
     map.on('load', () => {
       addLayers(map);
-
-      // Hover popup (added once, survives style switches via layer-specific events)
-      const hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
-      const SITE_LAYERS = ['lyr-sites-green', 'lyr-sites-yellow'];
-      SITE_LAYERS.forEach(lyrId => {
-        map.on('click', lyrId, e => {
-          const p = e.features?.[0]?.properties;
-          if (!p) return;
-          onSiteClickRef.current?.({
-            lat: p.lat, lng: p.lng,
-            totalScore: p.totalScore, powerScore: p.powerScore,
-            gasScore: p.gasScore, waterScore: p.waterScore,
-            logisticsScore: p.logisticsScore, distSub: p.distSub,
-            distPipe: p.distPipe, distHighway: p.distHighway,
-            distAirport: p.distAirport, droughtLevel: p.droughtLevel,
-            nearSSA: p.nearSSA,
-          });
-        });
-        map.on('mouseenter', lyrId, e => {
-          map.getCanvas().style.cursor = 'pointer';
-          const p = e.features?.[0]?.properties;
-          const coords = e.features?.[0]?.geometry?.coordinates;
-          if (!p || !coords) return;
-          hoverPopup.setLngLat(coords).setHTML(
-            `<div style="font-family:system-ui,sans-serif;padding:6px 10px;background:#1e1e2e;border:1px solid #313244;border-radius:8px;color:#cdd6f4;font-size:12px;line-height:1.5;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
-              <div style="font-size:18px;font-weight:800;color:${p.totalScore>=70?'#86efac':'#fde68a'}">${p.totalScore}<span style="font-size:11px;font-weight:400;color:#6c7086">/100</span></div>
-              <div style="color:#6c7086;font-size:10px">⚡${p.powerScore} · 🔥${p.gasScore} · 💧${p.waterScore} · 🚛${p.logisticsScore}</div>
-              <div style="color:#6c7086;font-size:10px;margin-top:2px">Click for full breakdown</div>
-            </div>`
-          ).addTo(map);
-        });
-        map.on('mouseleave', lyrId, () => { map.getCanvas().style.cursor = ''; hoverPopup.remove(); });
-      });
-
       mapRef.current = map;
       onMapReadyRef.current?.(map);
     });
 
-    return () => { map.remove(); mapRef.current = null; };
+    return () => {
+      markersRef.current.forEach(m => m.remove());
+      markersRef.current = [];
+      map.remove();
+      mapRef.current = null;
+    };
   }, [addLayers]);
 
-  // Basemap switch — re-add all custom layers after style.load
+  // ── Basemap switch ─────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    basemapRef.current = basemap;
     const newStyle = basemap === 'satellite' ? SATELLITE_STYLE : STREET_STYLE;
+    // Clear markers before style change (they survive but need re-adding after)
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
     map.setStyle(newStyle);
     map.once('style.load', () => addLayers(map));
   }, [basemap, addLayers]);
 
-  // Load static data
+  // ── Static data → infrastructure layers ───────────────────────────────────
   useEffect(() => {
     if (staticData?.loading) return;
     const apply = () => {
@@ -285,7 +263,7 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
     }
   }, [staticData]);
 
-  // Layer visibility
+  // ── Layer visibility toggles ───────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
@@ -296,36 +274,18 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
     });
   }, [layerVisibility]);
 
-  // Update site dots
+  // ── Results → rebuild pin markers ─────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const update = () => {
-      const src = map.getSource('src-sites');
-      if (!src) return;
-      src.setData({
-        type: 'FeatureCollection',
-        features: results.map(site => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [site.lng, site.lat] },
-          properties: {
-            lat: site.lat, lng: site.lng,
-            totalScore: site.totalScore,
-            powerScore: site.powerScore, gasScore: site.gasScore,
-            waterScore: site.waterScore, logisticsScore: site.logisticsScore,
-            distSub: site.distSub, distPipe: site.distPipe,
-            distHighway: site.distHighway, distAirport: site.distAirport,
-            droughtLevel: site.droughtLevel ?? 'N/A',
-            nearSSA: !!site.nearSSA,
-          },
-        })),
-      });
-    };
-    if (map.isStyleLoaded()) update();
-    else map.once('load', update);
-  }, [results]);
+    if (map.isStyleLoaded()) {
+      rebuildMarkers(map, results);
+    } else {
+      map.once('load', () => rebuildMarkers(map, results));
+    }
+  }, [results, rebuildMarkers]);
 
-  // Fit map to drawn search polygon
+  // ── Fit map to drawn search polygon ───────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !searchPolygon) return;
@@ -333,12 +293,11 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
       const [minLng, minLat, maxLng, maxLat] = polygonBbox(searchPolygon);
       if (!isFinite(minLng)) return;
       const doFit = () => map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, duration: 900, maxZoom: 13 });
-      if (map.isStyleLoaded()) doFit();
-      else map.once('load', doFit);
+      if (map.isStyleLoaded()) doFit(); else map.once('load', doFit);
     } catch {}
   }, [searchPolygon]);
 
-  // Fly to selected site
+  // ── Fly to selected site ───────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !flyToSite) return;
@@ -358,23 +317,14 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
         zIndex: 10,
       }}>
         {['street', 'satellite'].map(mode => (
-          <button
-            key={mode}
-            onClick={() => setBasemap(mode)}
-            style={{
-              padding: '6px 13px',
-              fontSize: 12,
-              fontWeight: 600,
-              fontFamily: 'system-ui, sans-serif',
-              cursor: 'pointer',
-              border: 'none',
-              background: basemap === mode ? '#7c3aed' : 'rgba(15,15,23,0.85)',
-              color: basemap === mode ? '#fff' : '#9999b8',
-              backdropFilter: 'blur(6px)',
-              transition: 'background 0.15s, color 0.15s',
-              textTransform: 'capitalize',
-            }}
-          >
+          <button key={mode} onClick={() => setBasemap(mode)} style={{
+            padding: '6px 13px', fontSize: 12, fontWeight: 600,
+            fontFamily: 'system-ui, sans-serif', cursor: 'pointer', border: 'none',
+            background: basemap === mode ? '#7c3aed' : 'rgba(15,15,23,0.85)',
+            color: basemap === mode ? '#fff' : '#9999b8',
+            backdropFilter: 'blur(6px)',
+            transition: 'background 0.15s, color 0.15s',
+          }}>
             {mode === 'street' ? '🗺 Street' : '🛰 Satellite'}
           </button>
         ))}
@@ -384,15 +334,11 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
       {!hasSearch && (
         <div style={{
           position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(15, 15, 23, 0.88)',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(124, 58, 237, 0.4)',
-          borderRadius: 10, padding: '10px 18px',
-          color: '#c4c4d4', fontSize: 13, fontWeight: 500,
+          background: 'rgba(15,15,23,0.88)', backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(124,58,237,0.4)', borderRadius: 10,
+          padding: '10px 18px', color: '#c4c4d4', fontSize: 13, fontWeight: 500,
           display: 'flex', alignItems: 'center', gap: 8,
-          pointerEvents: 'none',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-          whiteSpace: 'nowrap',
+          pointerEvents: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', whiteSpace: 'nowrap',
         }}>
           <span style={{ fontSize: 16 }}>✏️</span>
           Use the <strong style={{ color: '#a78bfa' }}>polygon tool</strong> (top-right) to draw a search area on Texas
