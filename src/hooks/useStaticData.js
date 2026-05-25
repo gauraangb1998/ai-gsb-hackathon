@@ -11,6 +11,7 @@ const FILES = [
   { key: 'ssa',            file: 'tx_ssa.geojson' },
   { key: 'highways',       file: 'tx_highways.geojson' },
   { key: 'airports',       file: 'tx_airports.geojson' },
+  { key: 'datacenters',    file: 'tx_datacenters.geojson' },
 ];
 
 export function useStaticData() {
@@ -23,6 +24,7 @@ export function useStaticData() {
     ssa: EMPTY_FC,
     highways: EMPTY_FC,
     airports: EMPTY_FC,
+    datacenters: EMPTY_FC,
     loading: true,
     error: null,
   });

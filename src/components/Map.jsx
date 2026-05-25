@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { TX_CENTER, TX_ZOOM } from '../constants/bounds.js';
 import { LAYERS } from '../constants/layers.js';
 import { GREEN_THRESHOLD, YELLOW_THRESHOLD } from '../utils/scoring.js';
+import { getOperatorColor } from './LayerPanel.jsx';
 
 // ─── Single style with BOTH basemaps as raster sources ───────────────────────
 // We NEVER call map.setStyle() — toggling is done via setLayoutProperty only.
@@ -117,7 +118,7 @@ function makePinEl(site, onClick) {
   return el;
 }
 
-export default function Map({ layerVisibility, results, onMapReady, staticData, hasSearch, searchPolygon, flyToSite, onSiteClick, children }) {
+export default function Map({ layerVisibility, results, onMapReady, staticData, hasSearch, searchPolygon, flyToSite, onSiteClick, dcData, dcHidden, children }) {
   const containerRef  = useRef(null);
   const mapRef        = useRef(null);
   const markersRef    = useRef([]);
@@ -164,6 +165,58 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
         map.addSource(`src-${layer.id}`, { type: 'geojson', data: { type:'FeatureCollection', features:[] } });
         map.addLayer({ id:`lyr-${layer.id}`, type, source:`src-${layer.id}`, paint: PAINT.street[layer.id] });
       });
+
+      // ── Existing data centers ─────────────────────────────────────────
+      map.addSource('src-datacenters', { type: 'geojson', data: { type:'FeatureCollection', features:[] } });
+      // Outer ring (company color)
+      map.addLayer({
+        id: 'lyr-dc-ring', type: 'circle', source: 'src-datacenters',
+        paint: {
+          'circle-color': ['get', 'color'],
+          'circle-radius': 11,
+          'circle-opacity': 0.25,
+          'circle-stroke-color': ['get', 'color'],
+          'circle-stroke-width': 2,
+        },
+      });
+      // Inner square-ish marker
+      map.addLayer({
+        id: 'lyr-dc-dot', type: 'circle', source: 'src-datacenters',
+        paint: {
+          'circle-color': ['get', 'color'],
+          'circle-radius': 6,
+          'circle-opacity': 1,
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 1.5,
+        },
+      });
+
+      // DC click → popup
+      const dcPopup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 14,
+        className: 'dc-popup' });
+      map.on('click', 'lyr-dc-dot', e => {
+        const p = e.features?.[0]?.properties;
+        const coords = e.features?.[0]?.geometry?.coordinates;
+        if (!p || !coords) return;
+        const websiteHtml = p.website
+          ? `<a href="${p.website}" target="_blank" style="color:#93c5fd;font-size:10px;">${p.website.replace(/^https?:\/\//, '')}</a>`
+          : '';
+        dcPopup.setLngLat(coords).setHTML(`
+          <div style="font-family:system-ui,sans-serif;padding:8px 10px;background:#1e1e2e;border:1px solid #313244;border-radius:8px;color:#cdd6f4;font-size:12px;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,0.5)">
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:4px">${p.name || 'Data Center'}</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              <div style="width:8px;height:8px;border-radius:50%;background:${p.color};flex-shrink:0"></div>
+              <span style="color:#94a3b8">${p.operator || 'Unknown operator'}</span>
+            </div>
+            ${p.note ? `<div style="color:#6c7086;font-size:10px;margin-bottom:4px">${p.note}</div>` : ''}
+            ${websiteHtml}
+            <div style="margin-top:6px;padding-top:6px;border-top:1px solid #313244;font-size:10px;color:#6c7086">
+              ⚠️ Nearby data centers may compete for substation capacity &amp; water
+            </div>
+          </div>`).addTo(map);
+      });
+      map.on('mouseenter', 'lyr-dc-dot', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'lyr-dc-dot', () => { map.getCanvas().style.cursor = ''; });
 
       // ── City reference dots + labels ───────────────────────────────────
       map.addSource('src-cities', { type:'geojson', data: TX_CITIES });
@@ -233,6 +286,46 @@ export default function Map({ layerVisibility, results, onMapReady, staticData, 
       }
     });
   }, [layerVisibility]);
+
+  // ── Feed datacenter GeoJSON (with pre-computed color property) ──────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !dcData?.features) return;
+    const apply = () => {
+      const src = map.getSource('src-datacenters');
+      if (!src) return false;
+      // Attach color to each feature so the layer can use ['get', 'color']
+      const colored = {
+        ...dcData,
+        features: dcData.features.map(f => ({
+          ...f,
+          properties: { ...f.properties, color: getOperatorColor(f.properties?.operator) },
+        })),
+      };
+      src.setData(colored);
+      return true;
+    };
+    if (!apply()) {
+      const iv = setInterval(() => { if (apply()) clearInterval(iv); }, 100);
+      return () => clearInterval(iv);
+    }
+  }, [dcData]);
+
+  // ── Company visibility filter ────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    if (!map.getLayer('lyr-dc-dot')) return;
+    if (!dcHidden || dcHidden.size === 0) {
+      map.setFilter('lyr-dc-dot', null);
+      map.setFilter('lyr-dc-ring', null);
+    } else {
+      const hidden = [...dcHidden];
+      const filter = ['!', ['in', ['get', 'operator'], ['literal', hidden]]];
+      map.setFilter('lyr-dc-dot', filter);
+      map.setFilter('lyr-dc-ring', filter);
+    }
+  }, [dcHidden]);
 
   // ── Results → pin markers (always runs, no isStyleLoaded gate) ──────────
   useEffect(() => {

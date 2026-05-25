@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { LAYERS } from './constants/layers.js';
 import { useCandidateGrid } from './hooks/useCandidateGrid.js';
 import { useStaticData } from './hooks/useStaticData.js';
@@ -20,6 +20,22 @@ export default function App() {
   const [selectedSite, setSelectedSite] = useState(null);
   const [mapInstance, setMapInstance] = useState(null);
   const [flyToSite, setFlyToSite] = useState(null);
+  // dcHidden: Set of operator names the user has toggled OFF
+  const [dcHidden, setDcHidden] = useState(new Set());
+
+  // Unique operators + counts derived from loaded datacenter data
+  const dcCompanySummary = useMemo(() => {
+    const features = staticData.datacenters?.features;
+    if (!features?.length) return [];
+    const counts = {};
+    for (const f of features) {
+      const op = f.properties?.operator || 'Unknown';
+      counts[op] = (counts[op] || 0) + 1;
+    }
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [staticData.datacenters]);
 
   const { grid } = useCandidateGrid();
   const staticData = useStaticData();
@@ -73,7 +89,17 @@ export default function App() {
 
       {/* Main layout */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <LayerPanel visibility={layerVisibility} onChange={(id, val) => setLayerVisibility(prev => ({ ...prev, [id]: val }))} />
+        <LayerPanel
+          visibility={layerVisibility}
+          onChange={(id, val) => setLayerVisibility(prev => ({ ...prev, [id]: val }))}
+          dcCompanySummary={dcCompanySummary}
+          dcHidden={dcHidden}
+          onDcToggle={(name, visible) => setDcHidden(prev => {
+            const next = new Set(prev);
+            if (visible) next.delete(name); else next.add(name);
+            return next;
+          })}
+        />
 
         <Map
           layerVisibility={layerVisibility}
@@ -84,6 +110,8 @@ export default function App() {
           searchPolygon={searchBbox}
           flyToSite={flyToSite}
           onSiteClick={site => { setSelectedSite(site); setFlyToSite(site); }}
+          dcData={staticData.datacenters}
+          dcHidden={dcHidden}
         >
           <DrawControl map={mapInstance} onSearch={setSearchBbox} />
         </Map>

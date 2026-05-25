@@ -228,5 +228,73 @@ def main():
         print(f"  [{status}] {name}: {count} features")
 
 
+def fetch_datacenters():
+    """Fetch Texas data centers from OpenStreetMap via Overpass API (free, no key)."""
+    url = 'https://overpass-api.de/api/interpreter'
+    # Query for nodes/ways tagged as data centres in the Texas bounding box
+    query = """
+[out:json][timeout:45];
+(
+  node["facility"="data_centre"](25.84,-106.65,36.5,-93.51);
+  way["facility"="data_centre"](25.84,-106.65,36.5,-93.51);
+  node["building"="data_centre"](25.84,-106.65,36.5,-93.51);
+  way["building"="data_centre"](25.84,-106.65,36.5,-93.51);
+  node["telecom"="data_center"](25.84,-106.65,36.5,-93.51);
+  way["telecom"="data_center"](25.84,-106.65,36.5,-93.51);
+  node["man_made"="data_center"](25.84,-106.65,36.5,-93.51);
+  way["man_made"="data_center"](25.84,-106.65,36.5,-93.51);
+);
+out center tags;
+"""
+    out_path = os.path.join(OUTPUT_DIR, 'tx_datacenters.geojson')
+    try:
+        print('\n' + '='*55)
+        print('Dataset: tx_datacenters (OpenStreetMap Overpass)')
+        r = requests.post(url, data={'data': query}, timeout=60)
+        r.raise_for_status()
+        elements = r.json().get('elements', [])
+
+        features = []
+        for elem in elements:
+            if elem['type'] == 'node':
+                lng, lat = elem.get('lon'), elem.get('lat')
+            elif elem['type'] == 'way' and 'center' in elem:
+                lng, lat = elem['center']['lon'], elem['center']['lat']
+            else:
+                continue
+            tags = elem.get('tags', {})
+            name     = tags.get('name', tags.get('operator', 'Data Center'))
+            operator = (tags.get('operator') or tags.get('brand') or
+                        tags.get('name') or 'Unknown').strip()
+            features.append({
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [lng, lat]},
+                'properties': {
+                    'name':     name,
+                    'operator': operator,
+                    'website':  tags.get('website', ''),
+                    'note':     tags.get('note', ''),
+                    'status':   'existing',
+                    'osm_id':   elem['id'],
+                },
+            })
+
+        fc = {'type': 'FeatureCollection', 'features': features}
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(fc, f)
+        print(f'  SUCCESS: {len(features)} data centers -> public/data/tx_datacenters.geojson')
+        if features:
+            ops = sorted({f["properties"]["operator"] for f in features})
+            print(f'  Operators found: {", ".join(ops[:15])}{"..." if len(ops)>15 else ""}')
+
+    except Exception as e:
+        import traceback
+        print(f'  ERROR fetching data centers: {e}')
+        traceback.print_exc()
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump({'type': 'FeatureCollection', 'features': []}, f)
+
+
 if __name__ == '__main__':
     main()
+    fetch_datacenters()
